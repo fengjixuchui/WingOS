@@ -4,6 +4,8 @@
 #include <stivale_struct.h>
 #include <utils/wvector.h>
 #define KERNEL_PHYS_OFFSET ((uint64_t)0xffffffff80000000)
+#define USR_MEM_OFFSET ((uint64_t)0x0000002000000000)
+#define USR_BFRAME_SIZE ((uint64_t)0x0000000010000000)
 #define MEM_PHYS_OFFSET ((uint64_t)0xffff800000000000)
 #define PML4_GET_INDEX(addr) (addr & ((uint64_t)0x1ff << 39)) >> 39
 #define PDPT_GET_INDEX(addr) (addr & ((uint64_t)0x1ff << 30)) >> 30
@@ -35,10 +37,6 @@ uint64_t alloc_map_region(main_page_table *table, uint64_t phys_addr, uint64_t c
 
 uint64_t get_physical_addr(uint64_t virt);
 main_page_table *new_vmm_page_dir();
-inline void virt_map(uint64_t from, uint64_t to, uint64_t flags)
-{
-    map_page(from, to, flags);
-}
 void init_vmm(stivale_struct *bootdata);
 
 uintptr_t alloc_vmm_page(size_t length);

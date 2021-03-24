@@ -2,7 +2,7 @@
 #include <kern/mem_util.h>
 #include <kern/syscall.h>
 #include <stddef.h>
-#include <system_plug.h>
+#include <plug/system_plug.h>
 namespace plug
 {
 
@@ -35,5 +35,9 @@ namespace plug
     size_t read(int fd, void *buffer, size_t count)
     {
         return sys::sys$read(fd, buffer, count);
+    }
+
+    void exit(int s){
+        sys::sys$exit(s);
     }
 } // namespace plug

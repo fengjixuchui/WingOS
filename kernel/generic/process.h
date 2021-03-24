@@ -5,8 +5,8 @@
 #include <filesystem/userspace_fs.h>
 #include <process_context.h>
 #include <stdint.h>
+#include <utils/config.h>
 #include <utils/math.h>
-#define MAX_PROCESS 64
 #define SLEEP_ALWAYS ((uint64_t)-1)
 
 #define CURRENT_CPU ((uint64_t)-1)
@@ -111,7 +111,7 @@ public:
 
     bool is_used() const
     {
-        return (current_process_state != process_state::PROCESS_AVAILABLE && current_process_state != process_state::PROCESS_CRASH) && is_valid();
+        return (current_process_state != process_state::PROCESS_AVAILABLE && current_process_state != process_state::PROCESS_CRASH && current_process_state != process_state::PROCESS_SHOULD_BE_DEAD) && is_valid();
     };
     bool is_user() const
     {
@@ -141,7 +141,11 @@ public:
     void decrease_sleep(size_t tick) { sleeping -= tick; };
     size_t get_sleep_count() const { return sleeping; };
 
-    void kill() { current_process_state = process_state::PROCESS_SHOULD_BE_DEAD; }
+    void kill()
+    {
+        current_process_state = process_state::PROCESS_SHOULD_BE_DEAD;
+        sleeping = -1;
+    }
 
     const char *get_name() { return process_name; };
 
@@ -206,7 +210,7 @@ uint64_t get_process_global_data_copy(uint64_t offset, const char *process_name)
 void rename_process(const char *name, uint64_t pid);
 
 void sleep(uint64_t count);
-
 void sleep(uint64_t count, uint64_t pid);
 
 void kill(uint64_t pid);
+void kill_current();

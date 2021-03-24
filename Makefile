@@ -1,7 +1,8 @@
 DIRECTORY_GUARD=mkdir -p $(@D)
 
 ARCH := x86_64
-END_PATH := kernel/generic kernel/arch/$(ARCH) libs/libc libs/utils
+END_PATH := ./kernel/generic ./kernel/arch/$(ARCH) ./libs/libc ./libs/utils
+
 BUILD_OUT := ./build
 # kernel files
 HFILES    := $(shell find $(END_PATH) -type f -name '*.h')
@@ -15,6 +16,9 @@ CXXOBJFILES := $(patsubst %.cpp,$(BUILD_OUT)/%.o,$(CXXFILES))
 
 ASMFILES  := $(shell find $(END_PATH) -type f -name '*.asm')
 ASMOBJFILES := $(patsubst %.asm,$(BUILD_OUT)/%.o,$(ASMFILES))
+
+CLANG_CFILES := $(shell find $(END_PATH) ./app/ -type f -name '*.cpp') $(shell find $(END_PATH) -type f -name '*.c')
+CLANG_HFILES := $(shell find $(END_PATH) ./app/ -type f -name '*.h')
 
 
 LINK_PATH := ./kernel/arch/$(ARCH)/linker.ld
@@ -49,6 +53,8 @@ CHARDFLAGS := $(CFLAGS)               \
         -fno-pic                       \
         -no-pie \
         -m64 \
+		-msse \
+		-mavx \
 	    -Wall \
 	    -MD \
 	    -MMD \
@@ -81,6 +87,7 @@ CXXHARDFLAGS := $(CFLAGS)               \
 	    -Wall \
 	    -MD \
 			-msse \
+			-mavx \
 	    -MMD \
 	    -Werror \
         -O3 \
@@ -115,8 +122,7 @@ setup_toolchain:
 
 .PHONY:setup_limine
 setup_limine:
-	-rm ./limine/limine-install
-	@make -C limine/ limine-install -j$(nproc)
+	
 
 .PHONY:first_setup
 first_setup: 
@@ -145,10 +151,8 @@ runvbox: $(KERNEL_HDD)
 
 .PHONY:format
 format:
-	@clang-format -i --style=file $(CFILES) $(HFILES)
-	@clang-format -i --style=file $(USRCFILES) $(USRHFILES)
-	@clang-format -i --style=file $(USRAPPCFILES) $(USRAPPHFILES)
-
+	clang-format -i --style=file $(CLANG_CFILES)
+	clang-format -i --style=file $(CLANG_HFILES)
 foreachramfs: 
 	@for f in $(shell find initfs/ -maxdepth 64 -type f); do $(ECHFS_PATH) -m -p0 $(KERNEL_HDD) import $${f} $${f}; done
 
@@ -188,6 +192,8 @@ $(BUILD_OUT)/%.o: %.cpp
 	@$(DIRECTORY_GUARD)
 	@echo "[KERNEL $(ARCH)] (cpp) $<"
 	@$(CXX) $(CXXHARDFLAGS) -c $< -o $@
+%.h : %.h 
+	@echo "[KERNEL $(ARCH)] (h) $<"
 
 $(BUILD_OUT)/%.o: %.asm
 	@$(DIRECTORY_GUARD)
@@ -202,8 +208,7 @@ $(KERNEL_ELF): $(COBJFILES) $(CXXOBJFILES) $(ASMOBJFILES) $(LINK_PATH)
 $(KERNEL_HDD): $(KERNEL_ELF) 
 	-rm -rf $(KERNEL_HDD)
 	-mkdir build
-	bash ./make_disk.sh
-	limine/limine-install limine/limine.bin $(KERNEL_HDD)
+	sudo bash ./make_disk.sh
 
 .PHONY:clean
 clean:

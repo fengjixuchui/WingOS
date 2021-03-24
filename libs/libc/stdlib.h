@@ -2,6 +2,7 @@
 #define STDLIB_H
 #include <stddef.h>
 #include <stdint.h>
+
 int abs(int j);
 long labs(long j);
 long long llabs(long long j);
@@ -25,4 +26,6 @@ void srand(uint32_t seed);
 void *malloc(size_t size);
 void free(void *ptr);
 void *realloc(void *ptr, size_t size);
+
+void exit(int status);
 #endif

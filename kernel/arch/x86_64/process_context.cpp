@@ -60,10 +60,13 @@ uintptr_t switch_context(InterruptStackFrame *current_Isf, process *next)
 
     if (process::current() != NULL)
     {
-        process::current()->set_state(PROCESS_WAITING);
-        process::current()->get_arch_info()->rsp = (uint64_t)current_Isf;
+        if (process::current()->get_state() != PROCESS_SHOULD_BE_DEAD)
+        {
 
-        get_current_cpu()->save_sse(process::current()->get_arch_info()->sse_context);
+            process::current()->set_state(PROCESS_WAITING);
+            process::current()->get_arch_info()->rsp = (uint64_t)current_Isf;
+            get_current_cpu()->save_sse(process::current()->get_arch_info()->sse_context);
+        }
     }
     next->set_state(process_state::PROCESS_RUNNING);
     process::set_current(next);
@@ -78,7 +81,7 @@ uintptr_t switch_context(InterruptStackFrame *current_Isf, process *next)
 }
 void init_process_stackframe(process *pro, func entry_point, int argc, char **argv)
 {
-    pro->get_arch_info()->stack = (uint8_t*)get_mem_addr(pmm_alloc(PROCESS_STACK_SIZE/PAGE_SIZE));
+    pro->get_arch_info()->stack = (uint8_t *)get_mem_addr(pmm_alloc(PROCESS_STACK_SIZE / PAGE_SIZE));
     memzero(pro->get_arch_info()->stack, PROCESS_STACK_SIZE);
     pro->get_arch_info()->rsp =
         ((uint64_t)pro->get_arch_info()->stack) + PROCESS_STACK_SIZE;

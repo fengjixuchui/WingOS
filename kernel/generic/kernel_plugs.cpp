@@ -1,7 +1,7 @@
 #include <filesystem/userspace_fs.h>
 #include <physical.h>
+#include <plug/system_plug.h>
 #include <syscall.h>
-#include <system_plug.h>
 namespace plug
 {
 
@@ -37,5 +37,9 @@ namespace plug
     size_t read(int fd, void *buffer, size_t count)
     {
         return fs_read(fd, buffer, count);
+    }
+    void exit(int s)
+    {
+        log("plug", LOG_ERROR, "trying to call plug exit({}) in the kernel", s);
     }
 } // namespace plug
