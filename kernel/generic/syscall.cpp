@@ -83,7 +83,7 @@ void *sys$alloc(uint64_t count, uint8_t flag)
 
         for (uint64_t i = 0; i < count; i++)
         {
-            map_page((uintptr_t)res + i * PAGE_SIZE, get_usr_addr(res) + i * PAGE_SIZE, PAGE_TABLE_FLAGS);
+            map_page((uintptr_t)res + i * PAGE_SIZE, get_usr_addr(res) + i * PAGE_SIZE, true, true);
         }
         update_paging();
         return (void *)get_usr_addr(res);
@@ -92,7 +92,15 @@ void *sys$alloc(uint64_t count, uint8_t flag)
 
 int sys$free(uintptr_t target, uint64_t count)
 {
-    pmm_free((void *)get_rusr_addr(target), count);
+    if (target > MEM_ADDR)
+    {
+
+        pmm_free((void *)get_rmem_addr(target), count);
+    }
+    else
+    {
+        pmm_free((void *)get_rusr_addr(target), count);
+    }
     return 1;
 }
 
@@ -148,9 +156,10 @@ size_t sys$exit(int code)
 
     return 0;
 }
-
+utils::lock_type temporary_lock;
 int sys$ipc_server_exist(const char *path)
 {
+    utils::context_lock lock(temporary_lock);
     return service_exist(path);
 }
 int sys$create_server(const char *path)
@@ -216,7 +225,7 @@ uint64_t syscalls_length = sizeof(syscalls) / sizeof(void *);
 
 void init_syscall()
 {
-    log("syscall", LOG_DEBUG) << "loading syscall";
+    log("syscall", LOG_DEBUG, "loading syscall");
     // for later
 }
 
@@ -224,7 +233,7 @@ uint64_t syscall(uint64_t syscall_id, uint64_t arg1, uint64_t arg2, uint64_t arg
 {
     if (syscall_id > syscalls_length)
     {
-        log("syscall", LOG_ERROR) << "called invalid syscall" << syscall_id;
+        log("syscall", LOG_ERROR, "called invalid syscall: {}", syscall_id);
         return 0;
     }
     else

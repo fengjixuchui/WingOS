@@ -1,15 +1,17 @@
 #include "msg_system.h"
 #include <logging.h>
 #include <process.h>
+#include <utils/lock.h>
 #include <utils/math.h>
 int msg_system_id = 10;
 utils::alloc_array<msg_system, MAX_SERVER_COUNT> msg_system_list;
-
-msg_system *get_msg_system(int id)
+utils::lock_type system_lock;
+msg_system *get_msg_system(uint32_t id)
 {
+    utils::context_lock locker(system_lock);
     for (size_t i = 0; i < msg_system_list.size(); i++)
     {
-        if (msg_system_list.status(i) && (msg_system_list[i].get_msg_system_id() == (int)id))
+        if (msg_system_list.status(i) && (msg_system_list[i].get_msg_system_id() == (uint32_t)id))
         {
             return &msg_system_list[i];
         }
@@ -18,6 +20,7 @@ msg_system *get_msg_system(int id)
 }
 msg_system *get_msg_system(const char *val)
 {
+    utils::context_lock locker(system_lock);
     for (size_t i = 0; i < msg_system_list.size(); i++)
     {
         if (msg_system_list.status(i) && (strcmp(val, msg_system_list[i].msg_name()) == 0))
@@ -45,7 +48,7 @@ raw_msg_request copy_request(const raw_msg_request from)
     raw_msg_request target;
     target.valid = from.valid;
     target.size = from.size;
-    target.data = (uint8_t *)malloc(sizeof(uint8_t) * from.size);
+    target.data = (uint8_t *)malloc(from.size);
     memcpy(target.data, from.data, from.size);
     return target;
 }
@@ -73,15 +76,15 @@ size_t accept_connection(int service_id)
         log("msg system", LOG_ERROR, "process trying ot accept connection from a reserved service by another process");
         return 0;
     }
-    size_t res = v->accept_connection();
+    uint32_t res = v->accept_connection();
 
     if (res == 0)
     {
         return 0;
     }
     raw_msg_connection connect = {};
-    connect.connection_id = res;
-    connect.server_id = service_id;
+    connect.element.connection_id = res;
+    connect.element.server_id = service_id;
     return connect.raw;
 }
 bool service_exist(const char *path)
@@ -99,13 +102,13 @@ bool connection_accepted(uint32_t id)
 
     raw_msg_connection msg_connection;
     msg_connection.raw = id;
-    auto v = get_msg_system(msg_connection.server_id);
+    auto v = get_msg_system(msg_connection.element.server_id);
     if (v == nullptr)
     {
-        log("msg system", LOG_ERROR, "trying to get if a connection is accepted from message system {} that does not exist", msg_connection.server_id);
+        log("msg system", LOG_ERROR, "trying to get if a connection is accepted from message system {} that does not exist", msg_connection.element.server_id);
         return 0;
     }
-    return v->get_connection(msg_connection.connection_id)->accepted();
+    return v->get_connection(msg_connection.element.connection_id)->accepted();
 }
 uint32_t connect(const char *msg_system, size_t by_pid)
 {
@@ -116,9 +119,10 @@ uint32_t connect(const char *msg_system, size_t by_pid)
         return 0;
     }
     raw_msg_connection msg_connection;
-    msg_connection.server_id = v->get_msg_system_id();
-    msg_connection.connection_id = v->add_connection(by_pid);
-    if (msg_connection.connection_id == 0)
+    msg_connection.element.server_id = v->get_msg_system_id();
+    msg_connection.element.connection_id = v->add_connection(by_pid);
+
+    if (msg_connection.element.connection_id == 0)
     {
         log("msg system", LOG_ERROR, "server refuse connection");
         return 0;
@@ -130,20 +134,20 @@ int deconnect(uint32_t id)
 {
     raw_msg_connection msg_connection;
     msg_connection.raw = id;
-    auto v = get_msg_system(msg_connection.server_id);
+    auto v = get_msg_system(msg_connection.element.server_id);
     if (v == nullptr)
     {
-        log("msg system", LOG_ERROR, "trying to deconnect to message system {} that does not exist", msg_connection.server_id);
+        log("msg system", LOG_ERROR, "trying to deconnect to message system {} that does not exist", msg_connection.element.server_id);
         return 1;
     }
 
-    if (v->deconnect(msg_connection.connection_id, process::current()->get_pid()))
+    if (v->deconnect(msg_connection.element.connection_id, process::current()->get_pid()))
     {
         return 0;
     }
     else
     {
-        log("msg system", LOG_ERROR, "can't deconnect to message system {} with connection {}", msg_connection.server_id, msg_connection.connection_id);
+        log("msg system", LOG_ERROR, "can't deconnect to message system {} with connection {}", msg_connection.element.server_id, msg_connection.element.connection_id);
         return 2;
     }
 }
@@ -152,32 +156,32 @@ size_t send(uint32_t id, const raw_msg_request *request, int flags)
 
     raw_msg_connection msg_connection;
     msg_connection.raw = id;
-    auto v = get_msg_system(msg_connection.server_id);
+    auto v = get_msg_system(msg_connection.element.server_id);
     if (v == nullptr)
     {
-        log("msg system", LOG_ERROR, "trying to send to message system {} that does not exist", msg_connection.server_id);
-        return 1;
+        log("msg system", LOG_ERROR, "trying to send to message system {}/{} that does not exist", msg_connection.element.server_id, msg_connection.element.connection_id);
+        return 0;
     }
-    return (size_t)v->send(msg_connection.connection_id, *request, flags, process::current()->get_pid());
+    return (size_t)v->send(msg_connection.element.connection_id, *request, flags, process::current()->get_pid());
 }
 size_t receive(uint32_t id, raw_msg_request *request, int flags)
 {
 
     raw_msg_connection msg_connection;
     msg_connection.raw = id;
-    auto v = get_msg_system(msg_connection.server_id);
+    auto v = get_msg_system(msg_connection.element.server_id);
     if (v == nullptr)
     {
-        log("msg system", LOG_ERROR, "trying to send to message system {} that does not exist", msg_connection.server_id);
-        return 1;
+        log("msg system", LOG_ERROR, "trying to receive from message system {}/{} that does not exist", msg_connection.element.server_id, msg_connection.element.connection_id);
+        return 0;
     }
-    return (size_t)v->receive(msg_connection.connection_id, *request, flags, process::current()->get_pid());
+    return (size_t)v->receive(msg_connection.element.connection_id, *request, flags, process::current()->get_pid());
 }
 void init_msg_system()
 {
 }
 
-int msg_system::accept_connection()
+uint32_t msg_system::accept_connection()
 {
     if (connection_waiting_count == 0)
     {
@@ -185,12 +189,15 @@ int msg_system::accept_connection()
     }
     for (size_t i = 0; i < connection_list.size(); i++)
     {
+        msg_system_lock.lock();
         if (connection_list.status(i) && !connection_list[i].accepted())
         {
             connection_list[i].accepted(true);
             connection_waiting_count--;
+            msg_system_lock.unlock();
             return connection_list[i].id();
         }
+        msg_system_lock.unlock();
     }
 
     return 0;
@@ -198,6 +205,7 @@ int msg_system::accept_connection()
 
 int msg_system::add_connection(int pid)
 {
+    utils::context_lock locker(msg_system_lock);
     msg_connection connect(next_connection_uid++, pid, msg_system_id);
     size_t v = connection_list.alloc();
     if (connection_list.status(v))
@@ -223,8 +231,9 @@ bool msg_system::valid_connection(int id, int pid)
     return conn->from_pid() == pid;
 }
 
-msg_connection *msg_system::get_connection(int connection_id)
+msg_connection *msg_system::get_connection(uint32_t connection_id)
 {
+    utils::context_lock locker(msg_system_lock);
     for (size_t i = 0; i < connection_list.size(); i++)
     {
         if (connection_list.status(i) && connection_list[i].id() == connection_id)
@@ -235,9 +244,10 @@ msg_connection *msg_system::get_connection(int connection_id)
     return nullptr;
 }
 
-int msg_system::get_connection_table_id(int connection_id)
+int msg_system::get_connection_table_id(uint32_t connection_id)
 {
 
+    utils::context_lock locker(msg_system_lock);
     for (size_t i = 0; i < connection_list.size(); i++)
     {
         if (connection_list.status(i) && connection_list[i].id() == connection_id)
@@ -255,6 +265,7 @@ bool msg_system::deconnect(int connection_id, int pid)
         return false;
     }
     auto val = get_connection_table_id(connection_id);
+    utils::context_lock locker(msg_system_lock);
     connection_list.free(val);
     return true;
 }
@@ -263,6 +274,7 @@ int msg_system::send(int connection_id, const raw_msg_request request, int flags
     if (by_pid == by_server_pid)
     {
         auto connection = get_connection(connection_id);
+        utils::context_lock locker(msg_system_lock);
         connection->in_queue().send_msg(request);
         return request.size;
     }
@@ -270,6 +282,7 @@ int msg_system::send(int connection_id, const raw_msg_request request, int flags
     {
 
         auto connection = get_connection(connection_id);
+        utils::context_lock locker(msg_system_lock);
         if (!connection->accepted())
         {
             log("msg system", LOG_ERROR, "invalid send to connection: {} not accepted by pid: {}", connection_id, by_pid);
@@ -300,9 +313,9 @@ int msg_system::receive(int connection_id, raw_msg_request request, int flags, s
         {
             return 0;
         }
+        msg_system_lock.lock();
         auto last_msg = connection->out_queue().get_last_msg();
         size_t readed_length = utils::min(last_msg.size, request.size);
-
         if (readed_length != last_msg.size)
         {
             memcpy(request.data, last_msg.data, readed_length);
@@ -313,6 +326,7 @@ int msg_system::receive(int connection_id, raw_msg_request request, int flags, s
                    connection->out_queue().consume_msg().data, readed_length);
             free(last_msg.data);
         }
+        msg_system_lock.unlock();
 
         return readed_length;
     }
@@ -329,12 +343,14 @@ int msg_system::receive(int connection_id, raw_msg_request request, int flags, s
         {
             return 0;
         }
+        msg_system_lock.lock();
         auto last_msg = connection->in_queue().get_last_msg();
         size_t readed_length = utils::min(last_msg.size, request.size);
 
         if (!connection->accepted())
         {
             log("msg system", LOG_ERROR, "invalid send to connection: {} not accepted by pid: {}", connection_id, by_pid);
+            msg_system_lock.unlock();
             return 0;
         }
         if (readed_length != last_msg.size)
@@ -347,6 +363,7 @@ int msg_system::receive(int connection_id, raw_msg_request request, int flags, s
                    connection->in_queue().consume_msg().data, readed_length);
             free(last_msg.data);
         }
+        msg_system_lock.unlock();
 
         return readed_length;
     }

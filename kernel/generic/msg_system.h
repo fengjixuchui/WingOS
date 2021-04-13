@@ -5,6 +5,7 @@
 #include <string.h>
 #include <utils/alloc_array.h>
 #include <utils/config.h>
+#include <utils/lock.h>
 #include <utils/raw_msg_system.h>
 #include <utils/smart_ptr.h>
 #include <utils/warray.h>
@@ -16,8 +17,8 @@ union raw_msg_connection
     {
         uint16_t connection_id;
         uint16_t server_id;
-    };
-};
+    } element __attribute__((packed));
+} __attribute__((packed));
 
 raw_msg_request copy_request(const raw_msg_request from);
 class msg_queue
@@ -26,6 +27,10 @@ class msg_queue
     utils::vector<raw_msg_request> raw_queue;
 
 public:
+    msg_queue()
+    {
+        raw_queue = utils::vector<raw_msg_request>();
+    }
     utils::vector<raw_msg_request> &get()
     {
         return raw_queue;
@@ -54,7 +59,10 @@ public:
         raw_queue.push_back(copy_request(request));
         return true;
     }
-    void destroy(){};
+    void destroy()
+    {
+        raw_queue.clear();
+    };
 };
 
 class msg_connection
@@ -62,7 +70,7 @@ class msg_connection
     int _from_pid;
     int _to_msg_system;
     bool _accepted;
-    int _id;
+    uint32_t _id;
     msg_queue _out;
     msg_queue _in;
 
@@ -70,9 +78,14 @@ public:
     msg_connection()
     {
         _accepted = false;
+
+        _out = msg_queue();
+        _in = msg_queue();
     }
-    msg_connection(int connection_id, int pid, int msg_sys_id) : _from_pid(pid), _to_msg_system(msg_sys_id), _id(connection_id)
+    msg_connection(uint32_t connection_id, int pid, int msg_sys_id) : _from_pid(pid), _to_msg_system(msg_sys_id), _id(connection_id)
     {
+        _out = msg_queue();
+        _in = msg_queue();
         _accepted = false;
     }
     void accepted(bool status) { _accepted = status; };
@@ -85,7 +98,7 @@ public:
         return true;
     }
 
-    int id() const { return _id; };
+    uint32_t id() const { return _id; };
     int from_pid() const { return _from_pid; };
     msg_queue &out_queue() { return _out; };
     msg_queue &in_queue() { return _in; };
@@ -93,18 +106,20 @@ public:
 
 class msg_system
 {
+    utils::lock_type msg_system_lock;
     int next_connection_uid = 10;
     static constexpr int max_connection = SERVER_MAX_CONNECTION;
     utils::alloc_array<msg_connection, max_connection> connection_list;
     utils::unique_ptr<char> name;
     int connection_waiting_count = 0;
-    int msg_system_id;
+    uint32_t msg_system_id;
     size_t by_server_pid;
-    int get_connection_table_id(int connection_id);
+    int get_connection_table_id(uint32_t connection_id);
 
 public:
     msg_system()
     {
+        msg_system_lock.unlock();
         msg_system_id = -1;
         by_server_pid = -1;
         name = utils::unique_ptr<char>(nullptr);
@@ -112,6 +127,7 @@ public:
 
     void set(const char *path, int id, size_t pid_server)
     {
+        msg_system_lock.unlock();
         next_connection_uid = 10;
         name = new char[strlen(path) + 1];
         msg_system_id = id;
@@ -120,30 +136,36 @@ public:
     }
     void rename(const char *new_name)
     {
+        msg_system_lock.lock();
         name.reset(new char[strlen(new_name) + 1]);
         memcpy(name.get_raw(), new_name, strlen(new_name) + 1);
+
+        msg_system_lock.unlock();
     };
 
     const char *msg_name() const { return name.get_raw(); };
 
-    bool is_name(const char *comp) const
+    bool is_name(const char *comp)
     {
+        msg_system_lock.lock();
         if (strcmp(name.get_raw(), comp) == 0)
         {
+            msg_system_lock.unlock();
             return true;
         }
+        msg_system_lock.unlock();
         return false;
     };
 
-    int get_msg_system_id() const { return msg_system_id; };
+    uint32_t get_msg_system_id() const { return msg_system_id; };
 
     utils::alloc_array<msg_connection, max_connection> &connections() { return connection_list; };
 
-    int accept_connection();
+    uint32_t accept_connection();
 
     int add_connection(int pid);
 
-    msg_connection *get_connection(int msg_id);
+    msg_connection *get_connection(uint32_t msg_id);
 
     bool deconnect(int connection_id, int pid);
 

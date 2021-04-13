@@ -82,10 +82,26 @@ void *findFACP(void *RootSDT)
 
 void acpi::init(uint64_t rsdp)
 {
-    log("acpi", LOG_DEBUG) << "loading acpi";
+    log("acpi", LOG_DEBUG, "loading acpi");
 
     descriptor = (RSDPDescriptor20 *)get_rsdp();
     rsdt_table = get_mem_addr<RSDT *>(descriptor->firstPart.RSDT_address);
+
+    log("rsdt", LOG_DEBUG, "logging rsdt");
+    RSDT *rsdt = get_mem_addr<RSDT *>((descriptor->firstPart.RSDT_address));
+    int entries = (rsdt->h.Length - sizeof(rsdt->h)) / 4;
+
+    for (int i = 0; i < entries; i++)
+    {
+
+        if (rsdt->PointerToOtherSDT[i] == 0)
+        {
+            continue;
+        }
+
+        RSDTHeader *h = get_mem_addr<RSDTHeader *>((rsdt->PointerToOtherSDT[i]));
+        log("rsdt", LOG_INFO, "entry: {}, signature: {}, EOM: {} ", i, range_str(h->Signature, 4), range_str(h->OEMID, 6));
+    }
 }
 
 void acpi::init_in_paging()
@@ -96,8 +112,8 @@ void acpi::init_in_paging()
     int entries = (rsdt->h.Length - sizeof(rsdt->h)) / 4;
     uintptr_t ddat = ALIGN_DOWN((uintptr_t)rsdt, PAGE_SIZE);
 
-    map_page(ddat, get_mem_addr(ddat), 0x03);
-    map_page(ddat + PAGE_SIZE, get_mem_addr(ddat + PAGE_SIZE), 0x03);
+    map_page(ddat, get_mem_addr(ddat), true, false);
+    map_page(ddat + PAGE_SIZE, get_mem_addr(ddat + PAGE_SIZE), true, false);
 
     rsdt = (RSDT *)get_mem_addr((uint64_t)rsdt);
 
@@ -106,9 +122,9 @@ void acpi::init_in_paging()
         uint64_t addr = rsdt->PointerToOtherSDT[i];
         addr = ALIGN_DOWN(addr, PAGE_SIZE);
 
-        map_page(addr, get_mem_addr(addr), 0x03);
-        map_page(addr + PAGE_SIZE, get_mem_addr(addr + PAGE_SIZE), 0x03);
-        map_page(addr + (PAGE_SIZE * 2), get_mem_addr(addr + (PAGE_SIZE * 2)), 0x03);
+        map_page(addr, get_mem_addr(addr), true, false);
+        map_page(addr + PAGE_SIZE, get_mem_addr(addr + PAGE_SIZE), true, false);
+        map_page(addr + (PAGE_SIZE * 2), get_mem_addr(addr + (PAGE_SIZE * 2)), true, false);
     }
 }
 
